@@ -68,8 +68,8 @@ type Client interface {
 	GetTokenInfo() TokenInfo
 	RefreshToken() (AuthToken, error)
 	Get(string) (*Response, error)
-	Post(string, []byte) (*Response, error)
-	Delete(string, []byte) (*Response, error)
+	Post(string, []byte, string) (*Response, error)
+	Delete(string, []byte, string) (*Response, error)
 	do(*http.Request) (*Response, error)
 	doWithRetry(*http.Request) (*Response, error)
 	checkToken(*Response) (bool, error)
@@ -291,7 +291,7 @@ func (c *client) Get(resource string) (response *Response, err error) {
 }
 
 // Send HTTP POST to resource url with given data
-func (c *client) Post(resource string, data []byte) (response *Response, err error) {
+func (c *client) Post(resource string, data []byte, contentType string) (response *Response, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/Post] %s, %s", resource, string(data))
 		defer func() {
@@ -302,13 +302,13 @@ func (c *client) Post(resource string, data []byte) (response *Response, err err
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	return c.doWithRetry(req)
 }
 
 // Send HTTP DELETE to resource url with given data
-func (c *client) Delete(resource string, data []byte) (response *Response, err error) {
+func (c *client) Delete(resource string, data []byte, contentType string) (response *Response, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/Delete] %s, %s", resource, string(data))
 		defer func() {
@@ -319,7 +319,7 @@ func (c *client) Delete(resource string, data []byte) (response *Response, err e
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	return c.doWithRetry(req)
 }
