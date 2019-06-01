@@ -2,6 +2,7 @@ package minimarketo
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -66,13 +67,10 @@ type AuthToken struct {
 // Client Marketo http client
 type Client interface {
 	GetTokenInfo() TokenInfo
-	RefreshToken() (AuthToken, error)
-	Get(string) (*Response, error)
-	Post(string, []byte, string) (*Response, error)
-	Delete(string, []byte, string) (*Response, error)
-	do(*http.Request) (*Response, error)
-	doWithRetry(*http.Request) (*Response, error)
-	checkToken(*Response) (bool, error)
+	RefreshToken(context.Context) (AuthToken, error)
+	Get(context.Context, string) (*Response, error)
+	Post(context.Context, string, []byte, string) (*Response, error)
+	Delete(context.Context, string, []byte, string) (*Response, error)
 }
 
 type client struct {
@@ -85,6 +83,7 @@ type client struct {
 	auth             *AuthToken
 	tokenExpiresAt   time.Time
 	debug            bool
+	throttle         Throttle
 }
 
 // authRoundTripper wrapper for authentication query params
@@ -120,6 +119,10 @@ func (rt *restRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return rt.delegate.RoundTrip(req)
 }
 
+type Throttle interface {
+	ObtainPermit(context.Context) error
+}
+
 // ClientConfig stores client configuration
 type ClientConfig struct {
 	// ID: Marketo client ID
@@ -132,10 +135,12 @@ type ClientConfig struct {
 	Timeout uint
 	// Debug, optional: a flag to show logging output
 	Debug bool
+	// Throttle, optional: object controlling cancellation and outgoing request rate
+	Throttle Throttle
 }
 
 // NewClient returns a new Marketo Client
-func NewClient(config ClientConfig) (Client, error) {
+func NewClient(ctx context.Context, config ClientConfig) (Client, error) {
 	// create two roundtrippers
 	aRT := authRoundTripper{
 		clientID:     config.ID,
@@ -163,7 +168,7 @@ func NewClient(config ClientConfig) (Client, error) {
 		debug:            config.Debug,
 	}
 
-	if _, err := c.RefreshToken(); err != nil {
+	if _, err := c.RefreshToken(ctx); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -171,15 +176,28 @@ func NewClient(config ClientConfig) (Client, error) {
 
 // RefreshToken refreshes the auth token.
 // This is purely for testing purpose and not intended to be used.
-func (c *client) RefreshToken() (auth AuthToken, err error) {
+func (c *client) RefreshToken(ctx context.Context) (auth AuthToken, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/RefreshToken] start")
 		defer func() {
 			log.Print("[minimarketo/RefreshToken] DONE")
 		}()
 	}
+
+	req, err := http.NewRequest(http.MethodGet, c.identityEndpoint, nil)
+	if err != nil {
+		return auth, err
+	}
+
+	req = req.WithContext(ctx)
+	if c.throttle != nil {
+		if err := c.throttle.ObtainPermit(ctx); err != nil {
+			return auth, err
+		}
+	}
+
 	// Make request for token
-	resp, err := c.authClient.Get(c.identityEndpoint)
+	resp, err := c.authClient.Do(req)
 	if err != nil {
 		return auth, err
 	}
@@ -206,7 +224,7 @@ func (c *client) RefreshToken() (auth AuthToken, err error) {
 	return auth, nil
 }
 
-func (c *client) do(req *http.Request) (response *Response, err error) {
+func (c *client) do(ctx context.Context, req *http.Request) (response *Response, err error) {
 	var body []byte
 	if c.debug {
 		log.Printf("[minimarketo/do] URL: %s", req.URL)
@@ -214,6 +232,14 @@ func (c *client) do(req *http.Request) (response *Response, err error) {
 			log.Printf("[minimarketo/do] DONE: body %s", string(body))
 		}()
 	}
+
+	req = req.WithContext(ctx)
+	if c.throttle != nil {
+		if err := c.throttle.ObtainPermit(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	resp, err := c.restClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -238,45 +264,45 @@ func (c *client) do(req *http.Request) (response *Response, err error) {
 	return response, nil
 }
 
-func (c *client) doWithRetry(req *http.Request) (response *Response, err error) {
+func (c *client) doWithRetry(ctx context.Context, req *http.Request) (response *Response, err error) {
 	// check if token has been expired or not
 	if c.tokenExpiresAt.Before(time.Now()) {
 		if c.debug {
 			log.Printf("[minimarketo/doWithRetry] token expired at: %s", c.tokenExpiresAt.String())
 		}
-		c.RefreshToken()
+		c.RefreshToken(ctx)
 	}
 
-	response, err = c.do(req)
+	response, err = c.do(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	// check just in case we received 601 or 602
-	retry, err := c.checkToken(response)
+	retry, err := c.checkToken(ctx, response)
 	if err != nil {
 		return nil, err
 	}
 	if retry {
-		response, err = c.do(req)
+		response, err = c.do(ctx, req)
 	}
 
 	return response, err
 }
 
-func (c *client) checkToken(response *Response) (retry bool, err error) {
+func (c *client) checkToken(ctx context.Context, response *Response) (retry bool, err error) {
 	if len(response.Errors) > 0 && (response.Errors[0].Code == "601" || response.Errors[0].Code == "602") {
 		retry = true
 		if c.debug {
 			log.Printf("[minimarketo/checkToken] Expired/invalid token: %s", response.Errors[0].Code)
 		}
-		_, err = c.RefreshToken()
+		_, err = c.RefreshToken(ctx)
 	}
 	return retry, err
 }
 
 // Send HTTP GET to resource url
-func (c *client) Get(resource string) (response *Response, err error) {
+func (c *client) Get(ctx context.Context, resource string) (response *Response, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/Get] %s", resource)
 		defer func() {
@@ -287,11 +313,11 @@ func (c *client) Get(resource string) (response *Response, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.doWithRetry(req)
+	return c.doWithRetry(ctx, req)
 }
 
 // Send HTTP POST to resource url with given data
-func (c *client) Post(resource string, data []byte, contentType string) (response *Response, err error) {
+func (c *client) Post(ctx context.Context, resource string, data []byte, contentType string) (response *Response, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/Post] %s, %s", resource, string(data))
 		defer func() {
@@ -304,11 +330,11 @@ func (c *client) Post(resource string, data []byte, contentType string) (respons
 	}
 	req.Header.Set("Content-Type", contentType)
 
-	return c.doWithRetry(req)
+	return c.doWithRetry(ctx, req)
 }
 
 // Send HTTP DELETE to resource url with given data
-func (c *client) Delete(resource string, data []byte, contentType string) (response *Response, err error) {
+func (c *client) Delete(ctx context.Context, resource string, data []byte, contentType string) (response *Response, err error) {
 	if c.debug {
 		log.Printf("[minimarketo/Delete] %s, %s", resource, string(data))
 		defer func() {
@@ -321,7 +347,7 @@ func (c *client) Delete(resource string, data []byte, contentType string) (respo
 	}
 	req.Header.Set("Content-Type", contentType)
 
-	return c.doWithRetry(req)
+	return c.doWithRetry(ctx, req)
 }
 
 // TokenInfo holds authentication token and time at which expires.

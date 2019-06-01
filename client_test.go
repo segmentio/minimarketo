@@ -1,6 +1,7 @@
 package minimarketo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -86,7 +87,7 @@ func TestNewClientSuccess(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(context.Background(), config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -141,7 +142,7 @@ func TestNewClientError(t *testing.T) {
 		Debug:    true,
 	}
 
-	_, err := NewClient(config)
+	_, err := NewClient(context.Background(), config)
 	if err != nil {
 		expectedError := fmt.Sprintf("Authentication error: 401 %s", authResponseError)
 		if err.Error() != expectedError {
@@ -193,7 +194,10 @@ func TestRefreshToken(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+
+	ctx := context.Background()
+
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -205,7 +209,7 @@ func TestRefreshToken(t *testing.T) {
 	}
 
 	// refresh token
-	authToken, err := client.RefreshToken()
+	authToken, err := client.RefreshToken(ctx)
 	if err != nil {
 		t.Error(err)
 	}
@@ -260,6 +264,8 @@ func TestGetErrorWith500(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
+
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -267,12 +273,12 @@ func TestGetErrorWith500(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	_, err = client.Get(findLeadPath)
+	_, err = client.Get(ctx, findLeadPath)
 	if err != nil {
 		if called != 2 {
 			t.Errorf("Expected only two calls: %d", called)
@@ -298,6 +304,7 @@ func TestGetErrorWithNoBody(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -305,12 +312,12 @@ func TestGetErrorWithNoBody(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	_, err = client.Get(invalidFindLeadPath)
+	_, err = client.Get(ctx, invalidFindLeadPath)
 	if err != nil {
 		if called != 2 {
 			t.Errorf("Expected only two calls: %d", called)
@@ -357,6 +364,7 @@ func TestGetSuccess(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -364,12 +372,12 @@ func TestGetSuccess(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	response, err := client.Get(findLeadPath)
+	response, err := client.Get(ctx, findLeadPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -431,6 +439,8 @@ func TestGetSuccessWithSoonExpiringToken(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
+
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -438,7 +448,7 @@ func TestGetSuccessWithSoonExpiringToken(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -446,7 +456,7 @@ func TestGetSuccessWithSoonExpiringToken(t *testing.T) {
 	fmt.Println("Sleeping for 2 seconds...")
 	time.Sleep(2 * time.Second)
 
-	response, err := client.Get(findLeadPath)
+	response, err := client.Get(ctx, findLeadPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -503,6 +513,7 @@ func TestGetSuccessWithExpiringToken(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -510,12 +521,12 @@ func TestGetSuccessWithExpiringToken(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	response, err := client.Get(findLeadPath)
+	response, err := client.Get(ctx, findLeadPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -586,6 +597,7 @@ func TestGetSuccessWithInvalidToken(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -593,12 +605,12 @@ func TestGetSuccessWithInvalidToken(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	response, err := client.Get(findLeadPath)
+	response, err := client.Get(ctx, findLeadPath)
 	if err != nil {
 		t.Error(err)
 	}
@@ -679,6 +691,7 @@ func TestDeleteSuccess(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -686,12 +699,12 @@ func TestDeleteSuccess(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	response, err := client.Delete(path, json.RawMessage(fmt.Sprintf(`{"input": [{"id": %d}]}`, inputID)))
+	response, err := client.Delete(ctx, path, json.RawMessage(fmt.Sprintf(`{"input": [{"id": %d}]}`, inputID)), "application/json")
 	if err != nil {
 		t.Error(err)
 	}
@@ -796,6 +809,8 @@ func TestPostSuccess(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx := context.Background()
+
 	// New Marketo Client
 	config := ClientConfig{
 		ID:       clientID,
@@ -803,12 +818,12 @@ func TestPostSuccess(t *testing.T) {
 		Endpoint: ts.URL,
 		Debug:    true,
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(ctx, config)
 	if err != nil {
 		t.Error(err)
 	}
 
-	response, err := client.Post(path, json.RawMessage(fmt.Sprintf(createLeadRequest, email, firstName, lastName)))
+	response, err := client.Post(ctx, path, json.RawMessage(fmt.Sprintf(createLeadRequest, email, firstName, lastName)), "application/json")
 	if err != nil {
 		t.Error(err)
 	}
